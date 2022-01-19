@@ -1,18 +1,20 @@
+//go:build !nosqlite || !nomysql || !nopg
 // +build !nosqlite !nomysql !nopg
 
 /*
- * JuiceFS, Copyright (C) 2020 Juicedata, Inc.
+ * JuiceFS, Copyright 2020 Juicedata, Inc.
  *
- * This program is free software: you can use, redistribute, and/or modify
- * it under the terms of the GNU Affero General Public License, version 3
- * or later ("AGPL"), as published by the Free Software Foundation.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * You should have received a copy of the GNU Affero General Public License
- * along with this program. If not, see <http://www.gnu.org/licenses/>.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package meta
@@ -34,7 +36,9 @@ import (
 	"time"
 
 	"github.com/juicedata/juicefs/pkg/utils"
+	"github.com/sirupsen/logrus"
 	"xorm.io/xorm"
+	"xorm.io/xorm/log"
 	"xorm.io/xorm/names"
 )
 
@@ -149,6 +153,19 @@ func newSQLMeta(driver, addr string, conf *Config) (Meta, error) {
 	if err != nil {
 		return nil, fmt.Errorf("unable to use data source %s: %s", driver, err)
 	}
+	switch logger.Level { // make xorm less verbose
+	case logrus.TraceLevel:
+		engine.SetLogLevel(log.LOG_DEBUG)
+	case logrus.DebugLevel:
+		engine.SetLogLevel(log.LOG_INFO)
+	case logrus.InfoLevel, logrus.WarnLevel:
+		engine.SetLogLevel(log.LOG_WARNING)
+	case logrus.ErrorLevel:
+		engine.SetLogLevel(log.LOG_ERR)
+	default:
+		engine.SetLogLevel(log.LOG_OFF)
+	}
+
 	start := time.Now()
 	if err = engine.Ping(); err != nil {
 		return nil, fmt.Errorf("ping database: %s", err)
@@ -442,8 +459,8 @@ func (m *dbMeta) ListSessions() ([]*Session, error) {
 		return nil, err
 	}
 	sessions := make([]*Session, 0, len(rows))
-	for _, row := range rows {
-		s, err := m.getSession(&row, false)
+	for i := range rows {
+		s, err := m.getSession(&rows[i], false)
 		if err != nil {
 			logger.Errorf("get session: %s", err)
 			continue
@@ -768,12 +785,12 @@ func (m *dbMeta) Truncate(ctx Context, inode Ino, flags uint8, length uint64, at
 			}
 			for rows.Next() {
 				if err = rows.Scan(&c); err != nil {
-					rows.Close()
+					_ = rows.Close()
 					return err
 				}
 				zeroChunks = append(zeroChunks, c.Indx)
 			}
-			rows.Close()
+			_ = rows.Close()
 		}
 
 		l := uint32(right - left)
@@ -1272,7 +1289,7 @@ func (m *dbMeta) doRename(ctx Context, parentSrc Ino, nameSrc string, parentDst 
 		}
 		if parentSrc == parentDst && se.Name == nameDst {
 			if inode != nil {
-				*inode = Ino(se.Inode)
+				*inode = se.Inode
 			}
 			return nil
 		}
@@ -1327,7 +1344,7 @@ func (m *dbMeta) doRename(ctx Context, parentSrc Ino, nameSrc string, parentDst 
 			if flags == RenameNoReplace {
 				return syscall.EEXIST
 			}
-			dino = Ino(de.Inode)
+			dino = de.Inode
 			ok, err := s.Get(&dn)
 			if err != nil {
 				return err
@@ -1587,7 +1604,7 @@ func (m *dbMeta) doCleanStaleSession(sid uint64) {
 			inodes = append(inodes, s.Inode)
 		}
 	}
-	rows.Close()
+	_ = rows.Close()
 
 	done := true
 	for _, inode := range inodes {
@@ -1618,7 +1635,7 @@ func (m *dbMeta) CleanStaleSessions() {
 			ids = append(ids, s.Sid)
 		}
 	}
-	rows.Close()
+	_ = rows.Close()
 	for _, sid := range ids {
 		m.doCleanStaleSession(sid)
 	}
@@ -1831,26 +1848,26 @@ func (m *dbMeta) CopyFileRange(ctx Context, fin Ino, offIn uint64, fout Ino, off
 		for rows.Next() {
 			err = rows.Scan(&c)
 			if err != nil {
-				rows.Close()
+				_ = rows.Close()
 				return err
 			}
 			chunks[c.Indx] = readSliceBuf(c.Slices)
 		}
-		rows.Close()
+		_ = rows.Close()
 
 		ses := s
-		updateSlices := func(indx uint32, buf []byte, s *Slice) error {
+		updateSlices := func(indx uint32, buf []byte, chunkid uint64, size uint32) error {
 			if err := m.appendSlice(ses, fout, indx, buf); err != nil {
 				return err
 			}
-			if s.Chunkid > 0 {
-				if _, err := ses.Exec("update jfs_chunk_ref set refs=refs+1 where chunkid = ? AND size = ?", s.Chunkid, s.Size); err != nil {
+			if chunkid > 0 {
+				if _, err := ses.Exec("update jfs_chunk_ref set refs=refs+1 where chunkid = ? AND size = ?", chunkid, size); err != nil {
 					return err
 				}
 			}
 			return nil
 		}
-		coff := uint64(offIn/ChunkSize) * ChunkSize
+		coff := offIn / ChunkSize * ChunkSize
 		for coff < offIn+size {
 			if coff%ChunkSize != 0 {
 				panic("coff")
@@ -1876,15 +1893,15 @@ func (m *dbMeta) CopyFileRange(ctx Context, fin Ino, offIn uint64, fout Ino, off
 					indx := uint32(doff / ChunkSize)
 					dpos := uint32(doff % ChunkSize)
 					if dpos+s.Len > ChunkSize {
-						if err := updateSlices(indx, marshalSlice(dpos, s.Chunkid, s.Size, s.Off, ChunkSize-dpos), &s); err != nil {
+						if err := updateSlices(indx, marshalSlice(dpos, s.Chunkid, s.Size, s.Off, ChunkSize-dpos), s.Chunkid, s.Size); err != nil {
 							return err
 						}
 						skip := ChunkSize - dpos
-						if err := updateSlices(indx+1, marshalSlice(0, s.Chunkid, s.Size, s.Off+skip, s.Len-skip), &s); err != nil {
+						if err := updateSlices(indx+1, marshalSlice(0, s.Chunkid, s.Size, s.Off+skip, s.Len-skip), s.Chunkid, s.Size); err != nil {
 							return err
 						}
 					} else {
-						if err := updateSlices(indx, marshalSlice(dpos, s.Chunkid, s.Size, s.Off, s.Len), &s); err != nil {
+						if err := updateSlices(indx, marshalSlice(dpos, s.Chunkid, s.Size, s.Off, s.Len), s.Chunkid, s.Size); err != nil {
 							return err
 						}
 					}
@@ -1917,7 +1934,7 @@ func (m *dbMeta) cleanupDeletedFiles() {
 				fs = append(fs, d)
 			}
 		}
-		rows.Close()
+		_ = rows.Close()
 		for _, f := range fs {
 			logger.Debugf("cleanup chunks of inode %d with %d bytes", f.Inode, f.Length)
 			m.doDeleteFileData(f.Inode, f.Length)
@@ -1943,24 +1960,25 @@ func (m *dbMeta) cleanupSlices() {
 			_, err := ses.Update(&counter{Value: now}, counter{Name: "nextCleanupSlices"})
 			return err
 		})
+		m.doCleanupSlices()
+	}
+}
 
-		var ck chunkRef
-		rows, err := m.db.Where("refs <= 0").Rows(&ck)
-		if err != nil {
-			continue
+func (m *dbMeta) doCleanupSlices() {
+	var ck chunkRef
+	rows, err := m.db.Where("refs <= 0").Rows(&ck)
+	if err != nil {
+		return
+	}
+	var cks []chunkRef
+	for rows.Next() {
+		if rows.Scan(&ck) == nil {
+			cks = append(cks, ck)
 		}
-		var cks []chunkRef
-		for rows.Next() {
-			if rows.Scan(&ck) == nil {
-				cks = append(cks, ck)
-			}
-		}
-		rows.Close()
-		for _, ck := range cks {
-			if ck.Refs <= 0 {
-				m.deleteSlice(ck.Chunkid, ck.Size)
-			}
-		}
+	}
+	_ = rows.Close()
+	for _, ck := range cks {
+		m.deleteSlice(ck.Chunkid, ck.Size)
 	}
 }
 
@@ -2014,7 +2032,7 @@ func (m *dbMeta) doDeleteFileData(inode Ino, length uint64) {
 			indexes = append(indexes, c.Indx)
 		}
 	}
-	rows.Close()
+	_ = rows.Close()
 	for _, indx := range indexes {
 		err = m.deleteChunk(inode, indx)
 		if err != nil {
@@ -2151,7 +2169,7 @@ func (m *dbMeta) CompactAll(ctx Context) syscall.Errno {
 			cs = append(cs, c)
 		}
 	}
-	rows.Close()
+	_ = rows.Close()
 
 	for _, c := range cs {
 		logger.Debugf("compact chunk %d:%d (%d slices)", c.Inode, c.Indx, len(c.Slices)/sliceBytes)
@@ -2161,6 +2179,9 @@ func (m *dbMeta) CompactAll(ctx Context) syscall.Errno {
 }
 
 func (m *dbMeta) ListSlices(ctx Context, slices map[Ino][]Slice, delete bool, showProgress func()) syscall.Errno {
+	if delete {
+		m.doCleanupSlices()
+	}
 	var c chunk
 	rows, err := m.db.Rows(&c)
 	if err != nil {

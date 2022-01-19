@@ -1,21 +1,23 @@
 /*
- * JuiceFS, Copyright (C) 2018 Juicedata, Inc.
+ * JuiceFS, Copyright 2018 Juicedata, Inc.
  *
- * This program is free software: you can use, redistribute, and/or modify
- * it under the terms of the GNU Affero General Public License, version 3
- * or later ("AGPL"), as published by the Free Software Foundation.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * You should have received a copy of the GNU Affero General Public License
- * along with this program. If not, see <http://www.gnu.org/licenses/>.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 package sync
 
 import (
 	"bytes"
+	"math"
 	"reflect"
 	"testing"
 
@@ -75,11 +77,13 @@ func TestIeratorSingleEmptyKey(t *testing.T) {
 		t.Fatalf("result wrong: %s", keys)
 	}
 }
+func deepEqualWithOutMtime(a, b object.Object) bool {
+	return a.IsDir() == b.IsDir() && a.Key() == b.Key() && a.Size() == b.Size() &&
+		math.Abs(a.Mtime().Sub(b.Mtime()).Seconds()) < 1
+}
 
 // nolint:errcheck
 func TestSync(t *testing.T) {
-	// utils.SetLogLevel(logrus.DebugLevel)
-
 	config := &Config{
 		Start:     "",
 		End:       "",
@@ -92,57 +96,69 @@ func TestSync(t *testing.T) {
 		Exclude:   []string{"ab.*"},
 		Include:   []string{"[a|b].*"},
 		Verbose:   false,
-		Quiet:     false,
+		Quiet:     true,
 	}
 
-	a, _ := object.CreateStorage("mem", "a", "", "")
+	a, _ := object.CreateStorage("file", "/tmp/a/", "", "")
 	a.Put("a", bytes.NewReader([]byte("a")))
 	a.Put("ab", bytes.NewReader([]byte("ab")))
 	a.Put("abc", bytes.NewReader([]byte("abc")))
 
-	b, _ := object.CreateStorage("mem", "b", "", "")
+	b, _ := object.CreateStorage("file", "/tmp/b/", "", "")
 	b.Put("ba", bytes.NewReader([]byte("ba")))
 
-	// Copy "a" from mem://a to mem://b
+	// Copy "a" from a to b
+	total = 0
 	if err := Sync(a, b, config); err != nil {
 		t.Fatalf("sync: %s", err)
 	}
-	if copied != 1 {
-		t.Fatalf("should copy 1 keys, but got %d", copied)
+	if c := copied.Current(); c != 1 {
+		t.Fatalf("should copy 1 keys, but got %d", c)
 	}
 
 	// Now a: {"a", "ab", "abc"}, b: {"a", "ba"}
-	// Copy "ba" from mem://b to mem://a
+	// Copy "ba" from b to a
+	total = 0
 	if err := Sync(b, a, config); err != nil {
-		t.FailNow()
+		t.Fatalf("sync: %s", err)
 	}
-	// 1 copy occured, `copied` incresed 1
-	if copied != 2 {
-		t.Fatalf("should copy 2 keys, but got %d", copied)
-	}
-
-	// Now a: {"a", "ab", "abc", "ba"}, b: {"a", "ba"}
-	akeys, _ := a.List("", "", 4)
-	bkeys, _ := b.List("", "", 4)
-
-	if !reflect.DeepEqual(akeys[0], bkeys[0]) {
-		t.FailNow()
-	}
-	if !reflect.DeepEqual(akeys[len(akeys)-1], bkeys[len(bkeys)-1]) {
-		t.FailNow()
+	if c := copied.Current(); c != 1 {
+		t.Fatalf("should copy 1 keys, but got %d", c)
 	}
 
+	// Now aRes: {"","a", "ab", "abc", "ba"}, bRes: {"","a", "ba"}
+	aRes, _ := a.ListAll("", "")
+	bRes, _ := b.ListAll("", "")
+
+	var aObjs, bObjs []object.Object
+	for obj := range aRes {
+		aObjs = append(aObjs, obj)
+	}
+	for obj := range bRes {
+		bObjs = append(bObjs, obj)
+	}
+
+	if !deepEqualWithOutMtime(aObjs[1], bObjs[1]) {
+		t.FailNow()
+	}
+
+	if !deepEqualWithOutMtime(aObjs[len(aObjs)-1], bObjs[len(bObjs)-1]) {
+		t.FailNow()
+	}
+
+	total = 0
 	if err := Sync(a, b, config); err != nil {
 		t.Fatalf("sync: %s", err)
 	}
-	// No copy occured, `copied` isn't change
-	if copied != 2 {
-		t.Fatalf("should copy 2 keys, but got %d", copied)
+	// No copy occured
+	if c := copied.Current(); c != 0 {
+		t.Fatalf("should copy 0 keys, but got %d", c)
 	}
 
 	// Test --force-update option
 	config.ForceUpdate = true
-	// Forcibly copy {"a", "ba"} from mem://a to mem://b.
+	// Forcibly copy {"a", "ba"} from a to b.
+	total = 0
 	if err := Sync(a, b, config); err != nil {
 		t.Fatalf("sync: %s", err)
 	}

@@ -46,16 +46,20 @@ jobs:
 
       - name: Juicefs Mount
         run: |
-          sudo ./juicefs mount -d redis://127.0.0.1:6379/1 /tmp/jfs &
+          sudo ./juicefs mount -d redis://127.0.0.1:6379/1 /tmp/jfs --no-usage-report &
 
       - name: Pjdfstest
         run: |
           sudo apt-get update
           sudo apt-get install -y libtap-harness-archive-perl
           cd /tmp/jfs/
-          git clone https://github.com/pjd/pjdfstest.git
+          git clone https://github.com/sanwan/pjdfstest.git
           cd pjdfstest
           autoreconf -ifs
           ./configure
           make pjdfstest
           sudo prove -rv tests/
+
+      - name: Setup tmate session
+        if: ${{ failure() }}
+        uses: mxschmitt/action-tmate@v3

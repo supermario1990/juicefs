@@ -1,16 +1,17 @@
 /*
- * JuiceFS, Copyright (C) 2020 Juicedata, Inc.
+ * JuiceFS, Copyright 2020 Juicedata, Inc.
  *
- * This program is free software: you can use, redistribute, and/or modify
- * it under the terms of the GNU Affero General Public License, version 3
- * or later ("AGPL"), as published by the Free Software Foundation.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * You should have received a copy of the GNU Affero General Public License
- * along with this program. If not, see <http://www.gnu.org/licenses/>.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package vfs
@@ -147,7 +148,7 @@ func (v *VFS) Mknod(ctx Context, parent Ino, name string, mode uint16, cumask ui
 
 	var inode Ino
 	var attr = &Attr{}
-	err = v.Meta.Mknod(ctx, parent, name, _type, mode&07777, cumask, uint32(rdev), &inode, attr)
+	err = v.Meta.Mknod(ctx, parent, name, _type, mode&07777, cumask, rdev, &inode, attr)
 	if err == 0 {
 		entry = &meta.Entry{Inode: inode, Attr: attr}
 	}
@@ -425,7 +426,7 @@ func (v *VFS) Truncate(ctx Context, ino Ino, size int64, opened uint8, attr *Att
 		}
 		defer h.Wunlock()
 	}
-	v.writer.Flush(ctx, ino)
+	_ = v.writer.Flush(ctx, ino)
 	err = v.Meta.Truncate(ctx, ino, 0, uint64(size), attr)
 	if err == 0 {
 		v.writer.Truncate(ino, uint64(size))
@@ -465,7 +466,7 @@ func (v *VFS) Release(ctx Context, ino Ino, fh uint64) {
 			owner := f.flockOwner
 			f.Unlock()
 			if f.writer != nil {
-				f.writer.Flush(ctx)
+				_ = f.writer.Flush(ctx)
 			}
 			if locks&1 != 0 {
 				_ = v.Meta.Flock(ctx, ino, owner, F_UNLCK, false)
@@ -488,7 +489,7 @@ func (v *VFS) Read(ctx Context, ino Ino, buf []byte, off uint64, fh uint64) (n i
 				return
 			}
 			data := h.data
-			if off < uint64(h.off) {
+			if off < h.off {
 				data = nil
 			} else {
 				off -= h.off
@@ -532,7 +533,7 @@ func (v *VFS) Read(ctx Context, ino Ino, buf []byte, off uint64, fh uint64) (n i
 	}
 	defer h.Runlock()
 
-	v.writer.Flush(ctx, ino)
+	_ = v.writer.Flush(ctx, ino)
 	n, err = h.reader.Read(ctx, off, buf)
 	for err == syscall.EAGAIN {
 		n, err = h.reader.Read(ctx, off, buf)
@@ -562,13 +563,13 @@ func (v *VFS) Write(ctx Context, ino Ino, buf []byte, off, fh uint64) (err sysca
 		rb := utils.ReadBuffer(h.pending)
 		cmd := rb.Get32()
 		size := int(rb.Get32())
-		if rb.Left() < int(size) {
+		if rb.Left() < size {
 			logger.Debugf("message not complete: %d %d > %d", cmd, size, rb.Left())
 			return
 		}
 		h.data = append(h.data, h.pending...)
 		h.pending = h.pending[:0]
-		if rb.Left() == int(size) {
+		if rb.Left() == size {
 			h.data = append(h.data, v.handleInternalMsg(ctx, cmd, rb)...)
 		} else {
 			logger.Warnf("broken message: %d %d < %d", cmd, size, rb.Left())
@@ -699,7 +700,7 @@ func (v *VFS) CopyFileRange(ctx Context, nodeIn Ino, fhIn, offIn uint64, nodeOut
 	}
 	err = v.Meta.CopyFileRange(ctx, nodeIn, offIn, nodeOut, offOut, size, flags, &copied)
 	if err == 0 {
-		v.reader.Invalidate(nodeOut, offOut, uint64(size))
+		v.reader.Invalidate(nodeOut, offOut, size)
 	}
 	return
 }
@@ -905,7 +906,7 @@ func NewVFS(conf *Config, m meta.Meta, store chunk.ChunkStore) *VFS {
 		Meta:    m,
 		Store:   store,
 		reader:  reader,
-		writer:  NewDataWriter(conf, m, store, reader),
+		writer:  writer,
 		handles: make(map[Ino][]*handle),
 		nextfh:  1,
 	}

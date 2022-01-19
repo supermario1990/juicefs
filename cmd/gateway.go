@@ -1,18 +1,20 @@
-//+build !nogateway
+//go:build !nogateway
+// +build !nogateway
 
 /*
- * JuiceFS, Copyright (C) 2020 Juicedata, Inc.
+ * JuiceFS, Copyright 2020 Juicedata, Inc.
  *
- * This program is free software: you can use, redistribute, and/or modify
- * it under the terms of the GNU Affero General Public License, version 3
- * or later ("AGPL"), as published by the Free Software Foundation.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * You should have received a copy of the GNU Affero General Public License
- * along with this program. If not, see <http://www.gnu.org/licenses/>.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 package main
 
@@ -85,7 +87,7 @@ func gatewayFlags() *cli.Command {
 		},
 		&cli.BoolFlag{
 			Name:  "keep-etag",
-			Usage: "keep the etag information of the object",
+			Usage: "keep the ETag for uploaded objects",
 		})
 	return &cli.Command{
 		Name:      "gateway",
@@ -177,12 +179,15 @@ func (g *GateWay) NewGatewayLayer(creds auth.Credentials) (minio.ObjectLayer, er
 		Strict:     true,
 		ReadOnly:   c.Bool("read-only"),
 		OpenCache:  time.Duration(c.Float64("open-cache") * 1e9),
+		MountPoint: "s3gateway",
+		Subdir:     c.String("subdir"),
 		MaxDeletes: c.Int("max-deletes"),
 	})
 	format, err := m.Load()
 	if err != nil {
 		logger.Fatalf("load setting: %s", err)
 	}
+	wrapRegister("s3gateway", format.Name)
 
 	chunkConf := chunk.Config{
 		BlockSize: format.BlockSize * 1024,
@@ -221,16 +226,16 @@ func (g *GateWay) NewGatewayLayer(creds auth.Credentials) (minio.ObjectLayer, er
 	logger.Infof("Data use %s", blob)
 
 	store := chunk.NewCachedStore(blob, chunkConf)
-	m.OnMsg(meta.DeleteChunk, meta.MsgCallback(func(args ...interface{}) error {
+	m.OnMsg(meta.DeleteChunk, func(args ...interface{}) error {
 		chunkid := args[0].(uint64)
 		length := args[1].(uint32)
 		return store.Remove(chunkid, int(length))
-	}))
-	m.OnMsg(meta.CompactChunk, meta.MsgCallback(func(args ...interface{}) error {
+	})
+	m.OnMsg(meta.CompactChunk, func(args ...interface{}) error {
 		slices := args[0].([]meta.Slice)
 		chunkid := args[1].(uint64)
 		return vfs.Compact(chunkConf, store, slices, chunkid)
-	}))
+	})
 	err = m.NewSession()
 	if err != nil {
 		logger.Fatalf("new session: %s", err)

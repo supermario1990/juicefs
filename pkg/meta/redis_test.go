@@ -1,16 +1,17 @@
 /*
- * JuiceFS, Copyright (C) 2020 Juicedata, Inc.
+ * JuiceFS, Copyright 2020 Juicedata, Inc.
  *
- * This program is free software: you can use, redistribute, and/or modify
- * it under the terms of the GNU Affero General Public License, version 3
- * or later ("AGPL"), as published by the Free Software Foundation.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * You should have received a copy of the GNU Affero General Public License
- * along with this program. If not, see <http://www.gnu.org/licenses/>.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 //nolint:errcheck
@@ -226,7 +227,7 @@ func testMetaClient(t *testing.T, m Meta) {
 	attr.Mtime = 2
 	attr.Uid = 1
 	attr.Gid = 1
-	attr.Mode = 0644
+	attr.Mode = 0640
 	if st := m.SetAttr(ctx, inode, SetAttrAtime|SetAttrMtime|SetAttrUID|SetAttrGID|SetAttrMode, 0, attr); st != 0 {
 		t.Fatalf("setattr f: %s", st)
 	}
@@ -236,14 +237,14 @@ func testMetaClient(t *testing.T, m Meta) {
 	if st := m.GetAttr(ctx, inode, attr); st != 0 {
 		t.Fatalf("getattr f: %s", st)
 	}
-	if attr.Atime != 2 || attr.Mtime != 2 || attr.Uid != 1 || attr.Gid != 1 || attr.Mode != 0644 {
+	if attr.Atime != 2 || attr.Mtime != 2 || attr.Uid != 1 || attr.Gid != 1 || attr.Mode != 0640 {
 		t.Fatalf("atime:%d mtime:%d uid:%d gid:%d mode:%o", attr.Atime, attr.Mtime, attr.Uid, attr.Gid, attr.Mode)
 	}
 	if st := m.SetAttr(ctx, inode, SetAttrAtimeNow|SetAttrMtimeNow, 0, attr); st != 0 {
 		t.Fatalf("setattr f: %s", st)
 	}
-	fakeCtx := NewContext(100, 1, []uint32{1})
-	if st := m.Access(fakeCtx, parent, 4, nil); st != syscall.EACCES {
+	fakeCtx := NewContext(100, 2, []uint32{2, 1})
+	if st := m.Access(fakeCtx, parent, 2, nil); st != syscall.EACCES {
 		t.Fatalf("access d: %s", st)
 	}
 	if st := m.Access(fakeCtx, inode, 4, nil); st != 0 {
@@ -967,7 +968,7 @@ func testTruncateAndDelete(t *testing.T, m Meta) {
 	if totalSlices != 1 {
 		t.Fatalf("number of chunks: %d != 1, %+v", totalSlices, slices)
 	}
-	m.Close(ctx, inode)
+	_ = m.Close(ctx, inode)
 	if st := m.Unlink(ctx, 1, "f"); st != 0 {
 		t.Fatalf("unlink file %s", st)
 	}
@@ -1065,7 +1066,7 @@ func testCloseSession(t *testing.T, m Meta) {
 	var sid uint64
 	switch m := m.(type) {
 	case *redisMeta:
-		sid = uint64(m.sid)
+		sid = m.sid
 	case *dbMeta:
 		sid = m.sid
 	case *kvMeta:

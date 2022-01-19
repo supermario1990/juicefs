@@ -1,16 +1,17 @@
 /*
- * JuiceFS, Copyright (C) 2018 Juicedata, Inc.
+ * JuiceFS, Copyright 2018 Juicedata, Inc.
  *
- * This program is free software: you can use, redistribute, and/or modify
- * it under the terms of the GNU Affero General Public License, version 3
- * or later ("AGPL"), as published by the Free Software Foundation.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * You should have received a copy of the GNU Affero General Public License
- * along with this program. If not, see <http://www.gnu.org/licenses/>.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package main
@@ -23,6 +24,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"syscall"
@@ -114,6 +116,9 @@ func createSyncStorage(uri string, conf *sync.Config) (object.ObjectStorage, err
 	}
 	name := strings.ToLower(u.Scheme)
 	endpoint := u.Host
+
+	isS3PathTypeUrl := isS3PathType(endpoint)
+
 	if name == "file" {
 		endpoint = u.Path
 	} else if name == "hdfs" {
@@ -122,7 +127,7 @@ func createSyncStorage(uri string, conf *sync.Config) (object.ObjectStorage, err
 	} else {
 		endpoint = "http://" + endpoint
 	}
-	if name == "minio" {
+	if name == "minio" || name == "s3" && isS3PathTypeUrl {
 		// bucket name is part of path
 		endpoint += u.Path
 	}
@@ -144,12 +149,24 @@ func createSyncStorage(uri string, conf *sync.Config) (object.ObjectStorage, err
 			// skip bucket name
 			store = object.WithPrefix(store, strings.SplitN(u.Path[1:], "/", 2)[1])
 		}
+	case "s3":
+		if isS3PathTypeUrl && strings.Count(u.Path, "/") > 1 {
+			store = object.WithPrefix(store, strings.SplitN(u.Path[1:], "/", 2)[1])
+		} else if len(u.Path) > 1 {
+			store = object.WithPrefix(store, u.Path[1:])
+		}
 	default:
 		if len(u.Path) > 1 {
 			store = object.WithPrefix(store, u.Path[1:])
 		}
 	}
 	return store, nil
+}
+
+func isS3PathType(endpoint string) bool {
+	//localhost[:8080] 127.0.0.1[:8080]  s3.ap-southeast-1.amazonaws.com[:8080] s3-ap-southeast-1.amazonaws.com[:8080]
+	pattern := `^((localhost)|(s3[.-].*\.amazonaws\.com)|((1\d{2}|2[0-4]\d|25[0-5]|[1-9]\d|[1-9])\.((1\d{2}|2[0-4]\d|25[0-5]|[1-9]\d|\d)\.){2}(1\d{2}|2[0-4]\d|25[0-5]|[1-9]\d|\d)))?(:\d*)?$`
+	return regexp.MustCompile(pattern).MatchString(endpoint)
 }
 
 const USAGE = `juicefs [options] sync [options] SRC DST
@@ -215,12 +232,12 @@ func syncFlags() *cli.Command {
 			&cli.BoolFlag{
 				Name:    "update",
 				Aliases: []string{"u"},
-				Usage:   "update existing file if the source is newer",
+				Usage:   "skip files if the destination is newer",
 			},
 			&cli.BoolFlag{
 				Name:    "force-update",
 				Aliases: []string{"f"},
-				Usage:   "always update existing file",
+				Usage:   "always update existing files",
 			},
 			&cli.BoolFlag{
 				Name:  "perms",
@@ -237,7 +254,7 @@ func syncFlags() *cli.Command {
 			&cli.BoolFlag{
 				Name:    "delete-src",
 				Aliases: []string{"deleteSrc"},
-				Usage:   "delete objects from source after synced",
+				Usage:   "delete objects from source those already exist in destination",
 			},
 			&cli.BoolFlag{
 				Name:    "delete-dst",
@@ -267,6 +284,14 @@ func syncFlags() *cli.Command {
 			&cli.BoolFlag{
 				Name:  "no-https",
 				Usage: "donot use HTTPS",
+			},
+			&cli.BoolFlag{
+				Name:  "check-all",
+				Usage: "verify integrity of all files in source and destination",
+			},
+			&cli.BoolFlag{
+				Name:  "check-new",
+				Usage: "verify integrity of newly copied files",
 			},
 		},
 	}

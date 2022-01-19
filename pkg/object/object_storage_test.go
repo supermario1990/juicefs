@@ -1,16 +1,17 @@
 /*
- * JuiceFS, Copyright (C) 2018 Juicedata, Inc.
+ * JuiceFS, Copyright 2018 Juicedata, Inc.
  *
- * This program is free software: you can use, redistribute, and/or modify
- * it under the terms of the GNU Affero General Public License, version 3
- * or later ("AGPL"), as published by the Free Software Foundation.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * You should have received a copy of the GNU Affero General Public License
- * along with this program. If not, see <http://www.gnu.org/licenses/>.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package object
@@ -93,31 +94,65 @@ func testStorage(t *testing.T, s ObjectStorage) {
 	if d, e := get(s, "test", 4, 2); d != "o" {
 		t.Errorf("out-of-range get: 'o', but got %v, error:%s", len(d), e)
 	}
+	switch s.(*withPrefix).os.(type) {
+	case FileSystem:
+		objs, err2 := listAll(s, "", "", 2)
+		if err2 == nil {
+			if len(objs) != 2 {
+				t.Fatalf("List should return 2 keys, but got %d", len(objs))
+			}
+			if objs[0].Key() != "" {
+				t.Fatalf("First key should be empty string, but got %s", objs[0].Key())
+			}
+			if objs[0].Size() != 0 {
+				t.Fatalf("First object size should be 0, but got %d", objs[0].Size())
+			}
+			if objs[1].Key() != "test" {
+				t.Fatalf("First key should be test, but got %s", objs[1].Key())
+			}
+			if !strings.Contains(s.String(), "encrypted") && objs[1].Size() != 5 {
+				t.Fatalf("Size of first key shold be 5, but got %v", objs[1].Size())
+			}
+			now := time.Now()
+			if objs[1].Mtime().Before(now.Add(-30*time.Second)) || objs[1].Mtime().After(now.Add(time.Second*30)) {
+				t.Fatalf("Mtime of key should be within 10 seconds, but got %s", objs[1].Mtime().Sub(now))
+			}
+		} else {
+			t.Fatalf("list failed: %s", err2.Error())
+		}
 
-	objs, err2 := listAll(s, "", "", 1)
-	if err2 == nil {
-		if len(objs) != 1 {
-			t.Fatalf("List should return 1 keys, but got %d", len(objs))
+		objs, err2 = listAll(s, "", "test2", 1)
+		if err2 != nil {
+			t.Fatalf("list3 failed: %s", err2.Error())
+		} else if len(objs) != 0 {
+			t.Fatalf("list3 should not return anything, but got %d", len(objs))
 		}
-		if objs[0].Key() != "test" {
-			t.Fatalf("First key should be test, but got %s", objs[0].Key())
+	default:
+		objs, err2 := listAll(s, "", "", 1)
+		if err2 == nil {
+			if len(objs) != 1 {
+				t.Fatalf("List should return 1 keys, but got %d", len(objs))
+			}
+			if objs[0].Key() != "test" {
+				t.Fatalf("First key should be test, but got %s", objs[0].Key())
+			}
+			if !strings.Contains(s.String(), "encrypted") && objs[0].Size() != 5 {
+				t.Fatalf("Size of first key shold be 5, but got %v", objs[0].Size())
+			}
+			now := time.Now()
+			if objs[0].Mtime().Before(now.Add(-30*time.Second)) || objs[0].Mtime().After(now.Add(time.Second*30)) {
+				t.Fatalf("Mtime of key should be within 10 seconds, but got %s", objs[0].Mtime().Sub(now))
+			}
+		} else {
+			t.Fatalf("list failed: %s", err2.Error())
 		}
-		if !strings.Contains(s.String(), "encrypted") && objs[0].Size() != 5 {
-			t.Fatalf("Size of first key shold be 5, but got %v", objs[0].Size())
-		}
-		now := time.Now()
-		if objs[0].Mtime().Before(now.Add(-30*time.Second)) || objs[0].Mtime().After(now.Add(time.Second*30)) {
-			t.Fatalf("Mtime of key should be within 10 seconds, but got %s", objs[0].Mtime().Sub(now))
-		}
-	} else {
-		t.Fatalf("list failed: %s", err2.Error())
-	}
 
-	objs, err2 = listAll(s, "", "test2", 1)
-	if err2 != nil {
-		t.Fatalf("list3 failed: %s", err2.Error())
-	} else if len(objs) != 0 {
-		t.Fatalf("list3 should not return anything, but got %d", len(objs))
+		objs, err2 = listAll(s, "", "test2", 1)
+		if err2 != nil {
+			t.Fatalf("list3 failed: %s", err2.Error())
+		} else if len(objs) != 0 {
+			t.Fatalf("list3 should not return anything, but got %d", len(objs))
+		}
 	}
 
 	f, _ := ioutil.TempFile("", "test")
@@ -214,6 +249,14 @@ func TestQingStor(t *testing.T) {
 	s, _ := newQingStor("https://test.pek3a.qingstor.com",
 		os.Getenv("QY_ACCESS_KEY"), os.Getenv("QY_SECRET_KEY"))
 	testStorage(t, s)
+
+	//private cloud
+	if os.Getenv("PRIVATE_QY_ACCESS_KEY") == "" {
+		t.SkipNow()
+	}
+	s2, _ := newQingStor("http://test.jn1.is.shanhe.com",
+		os.Getenv("PRIVATE_QY_ACCESS_KEY"), os.Getenv("PRIVATE_QY_SECRET_KEY"))
+	testStorage(t, s2)
 }
 
 func TestS3(t *testing.T) {
@@ -440,7 +483,10 @@ func TestEncrypted(t *testing.T) {
 }
 
 func TestMarsharl(t *testing.T) {
-	s, _ := CreateStorage("mem", "", "", "")
+	if os.Getenv("HDFS_ADDR") == "" {
+		t.Skip()
+	}
+	s, _ := newHDFS(os.Getenv("HDFS_ADDR"), "", "")
 	_ = s.Put("hello", bytes.NewReader([]byte("world")))
 	fs := s.(FileSystem)
 	_ = fs.Chown("hello", "user", "group")

@@ -1,8 +1,9 @@
 ---
 sidebar_label: How to Setup Object Storage
-sidebar_position: 3
+sidebar_position: 4
 slug: /how_to_setup_object_storage
 ---
+
 # How to Setup Object Storage
 
 By reading [JuiceFS Technical Architecture](../introduction/architecture.md) and [How JuiceFS Store Files](../reference/how_juicefs_store_files.md), you will understand that JuiceFS is designed to store data and metadata independently. Generally , the data is stored in the cloud storage based on object storage, and the metadata corresponding to the data is stored in an independent database.
@@ -221,7 +222,7 @@ $ ./juicefs format \
 
 Please follow [this document](https://wasabi-support.zendesk.com/hc/en-us/articles/360019677192-Creating-a-Root-Access-Key-and-Secret-Key) to learn how to get access key and secret key.
 
-The `--bucket` option format is `https://<bucket>.s3.<region>.wasabisys.com`, replace `<region>` with specific region code, e.g. the region code of US East 1 (N. Virginia) is `us-east-1`. You could find all available regions at [here](https://wasabi-support.zendesk.com/hc/en-us/articles/360015106031-What-are-the-service-URLs-for-Wasabi-s-different-regions-). For example:
+The `--bucket` option format is `https://<bucket>.s3.<region>.wasabisys.com`, replace `<region>` with specific region code, e.g. the region code of US East 1 (N. Virginia) is `us-east-1`. You could find all available regions at [here](https://wasabi-support.zendesk.com/hc/en-us/articles/360.15.26031-What-are-the-service-URLs-for-Wasabi-s-different-regions-). For example:
 
 ```bash
 $ ./juicefs format \
@@ -409,7 +410,7 @@ $ ./juicefs format \
 
 ## QingStor
 
-Please follow [this document](https://docs.qingcloud.com/qingstor/api/common/signature.html#%E8%8E%B7%E5%8F%96-access-key) to learn how to get access key and secret key.
+Please follow [this document](https://docsv3.qingcloud.com/storage/object-storage/api/practices/signature/#%E8%8E%B7%E5%8F%96-access-key) to learn how to get access key and secret key.
 
 The `--bucket` option format is `https://<bucket>.<region>.qingstor.com`, replace `<region>` with specific region code, e.g. the region code of Beijing 3-A is `pek3a`. You could find all available regions at [here](https://docs.qingcloud.com/qingstor/#%E5%8C%BA%E5%9F%9F%E5%8F%8A%E8%AE%BF%E9%97%AE%E5%9F%9F%E5%90%8D). For example:
 
@@ -493,7 +494,11 @@ $ ./juicefs format \
 
 ## Ceph RADOS
 
-The [Ceph Storage Cluster](https://docs.ceph.com/en/latest/rados) has a messaging layer protocol that enables clients to interact with a Ceph Monitor and a Ceph OSD Daemon. The `librados` API enables you to interact with the two types of daemons:
+:::note
+The minimum version of Ceph supported by JuiceFS is Luminous (v12.2.*), please make sure your version of Ceph meets the requirements.
+:::
+
+The [Ceph Storage Cluster](https://docs.ceph.com/en/latest/rados) has a messaging layer protocol that enables clients to interact with a Ceph Monitor and a Ceph OSD Daemon. The [`librados`](https://docs.ceph.com/en/latest/rados/api/librados-intro) API enables you to interact with the two types of daemons:
 
 - The [Ceph Monitor](https://docs.ceph.com/en/latest/rados/configuration/common/#monitors), which maintains a master copy of the cluster map.
 - The [Ceph OSD Daemon (OSD)](https://docs.ceph.com/en/latest/rados/configuration/common/#osds), which stores data as objects on a storage node.
@@ -502,12 +507,16 @@ JuiceFS supports the use of native Ceph APIs based on `librados`. You need insta
 
 First installing `librados`:
 
+:::note
+It is recommended to use `librados` that matches your Ceph version, e.g. if Ceph version is Octopus (v15.2.\*), then `librados` is also recommended to use v15.2.\*. Some Linux distributions (e.g. CentOS 7) may come with a lower version of `librados`, so if you fail to compile JuiceFS try downloading a higher version of the package.
+:::
+
 ```bash
 # Debian based system
 $ sudo apt-get install librados-dev
 
 # RPM based system
-$ sudo yum install librados-devel
+$ sudo yum install librados2-devel
 ```
 
 Then compile JuiceFS for Ceph (ensure you have Go 1.16+ and GCC 5.4+):

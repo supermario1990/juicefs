@@ -1,16 +1,17 @@
 /*
- * JuiceFS, Copyright (C) 2020 Juicedata, Inc.
+ * JuiceFS, Copyright 2020 Juicedata, Inc.
  *
- * This program is free software: you can use, redistribute, and/or modify
- * it under the terms of the GNU Affero General Public License, version 3
- * or later ("AGPL"), as published by the Free Software Foundation.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * You should have received a copy of the GNU Affero General Public License
- * along with this program. If not, see <http://www.gnu.org/licenses/>.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package main
@@ -145,6 +146,18 @@ func (w *wrapper) withPid(pid int) meta.Context {
 	return ctx
 }
 
+func (w *wrapper) isSuperuser(name string, groups []string) bool {
+	if name == w.superuser {
+		return true
+	}
+	for _, g := range groups {
+		if g == w.supergroup {
+			return true
+		}
+	}
+	return false
+}
+
 func (w *wrapper) lookupUid(name string) uint32 {
 	if name == w.superuser {
 		return 0
@@ -263,11 +276,11 @@ func getOrCreate(name, user, group, superuser, supergroup string, f func() *fs.F
 		logger.Infof("JuiceFileSystem created for user:%s group:%s", user, group)
 	}
 	w := &wrapper{jfs, nil, m, user, superuser, supergroup}
-	w.ctx = meta.NewContext(uint32(os.Getpid()), w.lookupUid(user), w.lookupGids(group))
-	// root is a normal user in Hadoop, but super user in POSIX (ignored in GUID mapping)
-	// woraround: lookup it here to create a bidirectional mapping
-	w.lookupUid("root")
-	w.lookupGid("root")
+	if w.isSuperuser(user, strings.Split(group, ",")) {
+		w.ctx = meta.NewContext(uint32(os.Getpid()), 0, []uint32{0})
+	} else {
+		w.ctx = meta.NewContext(uint32(os.Getpid()), w.lookupUid(user), w.lookupGids(group))
+	}
 	activefs[name] = append(ws, w)
 	h := uintptr(unsafe.Pointer(w)) & 0x7fffffff // low 32bits
 	handlers[h] = w
@@ -333,7 +346,11 @@ func jfs_init(cname, jsonConf, user, group, superuser, supergroup *C.char) uintp
 		}
 
 		if jConf.PushGateway != "" && pusher == nil {
-			prometheus.DefaultRegisterer = prometheus.WrapRegistererWithPrefix("juicefs_", prometheus.DefaultRegisterer)
+			registry := prometheus.NewRegistry() // replace default so only JuiceFS metrics are exposed
+			prometheus.DefaultGatherer = registry
+			prometheus.DefaultRegisterer = prometheus.WrapRegistererWithPrefix("juicefs_", registry)
+			prometheus.MustRegister(prometheus.NewProcessCollector(prometheus.ProcessCollectorOpts{}))
+			prometheus.MustRegister(prometheus.NewGoCollector())
 			// TODO: support multiple volumes
 			pusher = push.New(jConf.PushGateway, "juicefs").Gatherer(prometheus.DefaultGatherer)
 			pusher = pusher.Grouping("vol_name", format.Name).Grouping("mp", "sdk-"+strconv.Itoa(os.Getpid()))
@@ -404,16 +421,16 @@ func jfs_init(cname, jsonConf, user, group, superuser, supergroup *C.char) uintp
 			chunkConf.CacheDir = strings.Join(ds, string(os.PathListSeparator))
 		}
 		store := chunk.NewCachedStore(blob, chunkConf)
-		m.OnMsg(meta.DeleteChunk, meta.MsgCallback(func(args ...interface{}) error {
+		m.OnMsg(meta.DeleteChunk, func(args ...interface{}) error {
 			chunkid := args[0].(uint64)
 			length := args[1].(uint32)
 			return store.Remove(chunkid, int(length))
-		}))
-		m.OnMsg(meta.CompactChunk, meta.MsgCallback(func(args ...interface{}) error {
+		})
+		m.OnMsg(meta.CompactChunk, func(args ...interface{}) error {
 			slices := args[0].([]meta.Slice)
 			chunkid := args[1].(uint64)
 			return vfs.Compact(chunkConf, store, slices, chunkid)
-		}))
+		})
 		err = m.NewSession()
 		if err != nil {
 			logger.Fatalf("new session: %s", err)
@@ -500,11 +517,11 @@ func jfs_update_uid_grouping(h uintptr, uidstr *C.char, grouping *C.char) {
 	}
 	w.m.update(uids, gids)
 
-	curGids := w.ctx.Gids()
-	if len(groups) > 0 {
-		curGids = w.lookupGids(strings.Join(groups, ","))
+	if w.isSuperuser(w.user, groups) {
+		w.ctx = meta.NewContext(uint32(os.Getpid()), 0, []uint32{0})
+	} else if len(groups) > 0 {
+		w.ctx = meta.NewContext(uint32(os.Getpid()), w.lookupUid(w.user), w.lookupGids(strings.Join(groups, ",")))
 	}
-	w.ctx = meta.NewContext(uint32(os.Getpid()), w.lookupUid(w.user), curGids)
 }
 
 //export jfs_term
@@ -523,7 +540,7 @@ func jfs_term(pid int, h uintptr) int {
 			m.Add(1)
 			go func(f *fs.File) {
 				defer m.Done()
-				f.Close(ctx)
+				_ = f.Close(ctx)
 			}(f.File)
 			toClose = append(toClose, fd)
 		}
@@ -544,7 +561,7 @@ func jfs_term(pid int, h uintptr) int {
 					ws[i] = ws[len(ws)-1]
 					activefs[name] = ws[:len(ws)-1]
 				} else {
-					w.Flush()
+					_ = w.Flush()
 					// don't close the filesystem, so it can be re-used later
 					// w.Close()
 					// delete(activefs, name)
@@ -598,6 +615,10 @@ func jfs_create(pid int, h uintptr, cpath *C.char, mode uint16) int {
 	if err != 0 {
 		return errno(err)
 	}
+	if w.ctx.Uid() == 0 && w.user != w.superuser {
+		// belongs to supergroup
+		_ = setOwner(w, w.withPid(pid), C.GoString(cpath), w.user, "")
+	}
 	return nextFileHandle(f, w)
 }
 
@@ -607,7 +628,12 @@ func jfs_mkdir(pid int, h uintptr, cpath *C.char, mode C.mode_t) int {
 	if w == nil {
 		return EINVAL
 	}
-	return errno(w.Mkdir(w.withPid(pid), C.GoString(cpath), uint16(mode)))
+	err := errno(w.Mkdir(w.withPid(pid), C.GoString(cpath), uint16(mode)))
+	if err == 0 && w.ctx.Uid() == 0 && w.user != w.superuser {
+		// belongs to supergroup
+		_ = setOwner(w, w.withPid(pid), C.GoString(cpath), w.user, "")
+	}
+	return err
 }
 
 //export jfs_delete
@@ -675,7 +701,7 @@ func jfs_getXattr(pid int, h uintptr, path *C.char, name *C.char, buf uintptr, b
 	if len(buff) >= bufsize {
 		return bufsize
 	}
-	copy(toBuf(uintptr(buf), bufsize), buff)
+	copy(toBuf(buf, bufsize), buff)
 	return len(buff)
 }
 
@@ -692,7 +718,7 @@ func jfs_listXattr(pid int, h uintptr, path *C.char, buf uintptr, bufsize int) i
 	if len(buff) >= bufsize {
 		return bufsize
 	}
-	copy(toBuf(uintptr(buf), bufsize), buff)
+	copy(toBuf(buf, bufsize), buff)
 	return len(buff)
 }
 
@@ -824,20 +850,6 @@ func jfs_chmod(pid int, h uintptr, cpath *C.char, mode C.mode_t) int {
 	return errno(f.Chmod(w.withPid(pid), uint16(mode)))
 }
 
-//export jfs_chown
-func jfs_chown(pid int, h uintptr, cpath *C.char, uid uint32, gid uint32) int {
-	w := F(h)
-	if w == nil {
-		return EINVAL
-	}
-	f, err := w.Open(w.withPid(pid), C.GoString(cpath), 0)
-	if err != 0 {
-		return errno(err)
-	}
-	defer f.Close(w.withPid(pid))
-	return errno(f.Chown(w.withPid(pid), uid, gid))
-}
-
 //export jfs_utime
 func jfs_utime(pid int, h uintptr, cpath *C.char, mtime, atime int64) int {
 	w := F(h)
@@ -858,21 +870,25 @@ func jfs_setOwner(pid int, h uintptr, cpath *C.char, owner *C.char, group *C.cha
 	if w == nil {
 		return EINVAL
 	}
-	f, err := w.Open(w.withPid(pid), C.GoString(cpath), 0)
+	return setOwner(w, w.withPid(pid), C.GoString(cpath), C.GoString(owner), C.GoString(group))
+}
+
+func setOwner(w *wrapper, ctx meta.Context, path string, owner, group string) int {
+	f, err := w.Open(ctx, path, 0)
 	if err != 0 {
 		return errno(err)
 	}
-	defer f.Close(w.withPid(pid))
+	defer f.Close(ctx)
 	st, _ := f.Stat()
 	uid := uint32(st.(*fs.FileStat).Uid())
 	gid := uint32(st.(*fs.FileStat).Gid())
-	if owner != nil {
-		uid = w.lookupUid(C.GoString(owner))
+	if owner != "" {
+		uid = w.lookupUid(owner)
 	}
-	if group != nil {
-		gid = w.lookupGid(C.GoString(group))
+	if group != "" {
+		gid = w.lookupGid(group)
 	}
-	return errno(f.Chown(w.withPid(pid), uid, gid))
+	return errno(f.Chown(ctx, uid, gid))
 }
 
 //export jfs_listdir
@@ -993,11 +1009,11 @@ func jfs_concat(pid int, h uintptr, _dst *C.char, buf uintptr, bufsize int) int 
 //export jfs_lseek
 func jfs_lseek(pid, fd int, offset int64, whence int) int64 {
 	filesLock.Lock()
-	f, ok := openFiles[int(fd)]
+	f, ok := openFiles[fd]
 	if ok {
 		filesLock.Unlock()
 		off, _ := f.Seek(f.w.withPid(pid), offset, whence)
-		return int64(off)
+		return off
 	}
 	filesLock.Unlock()
 	return int64(EINVAL)
@@ -1006,7 +1022,7 @@ func jfs_lseek(pid, fd int, offset int64, whence int) int64 {
 //export jfs_read
 func jfs_read(pid, fd int, cbuf uintptr, count int) int {
 	filesLock.Lock()
-	f, ok := openFiles[int(fd)]
+	f, ok := openFiles[fd]
 	if !ok {
 		filesLock.Unlock()
 		return EINVAL
@@ -1018,13 +1034,13 @@ func jfs_read(pid, fd int, cbuf uintptr, count int) int {
 		logger.Errorf("read %s: %s", f.Name(), err)
 		return errno(err)
 	}
-	return int(n)
+	return n
 }
 
 //export jfs_pread
 func jfs_pread(pid, fd int, cbuf uintptr, count C.size_t, offset C.off_t) int {
 	filesLock.Lock()
-	f, ok := openFiles[int(fd)]
+	f, ok := openFiles[fd]
 	if !ok {
 		filesLock.Unlock()
 		return EINVAL
@@ -1039,32 +1055,32 @@ func jfs_pread(pid, fd int, cbuf uintptr, count C.size_t, offset C.off_t) int {
 		logger.Errorf("read %s: %s", f.Name(), err)
 		return errno(err)
 	}
-	return int(n)
+	return n
 }
 
 //export jfs_write
 func jfs_write(pid, fd int, cbuf uintptr, count C.size_t) int {
 	filesLock.Lock()
-	f, ok := openFiles[int(fd)]
+	f, ok := openFiles[fd]
 	if !ok {
 		filesLock.Unlock()
 		return EINVAL
 	}
 	filesLock.Unlock()
 
-	buf := toBuf(uintptr(cbuf), int(count))
+	buf := toBuf(cbuf, int(count))
 	n, err := f.Write(f.w.withPid(pid), buf)
 	if err != 0 {
 		logger.Errorf("write %s: %s", f.Name(), err)
 		return errno(err)
 	}
-	return int(n)
+	return n
 }
 
 //export jfs_flush
 func jfs_flush(pid, fd int) int {
 	filesLock.Lock()
-	f, ok := openFiles[int(fd)]
+	f, ok := openFiles[fd]
 	if !ok {
 		filesLock.Unlock()
 		return EINVAL
@@ -1077,7 +1093,7 @@ func jfs_flush(pid, fd int) int {
 //export jfs_fsync
 func jfs_fsync(pid, fd int) int {
 	filesLock.Lock()
-	f, ok := openFiles[int(fd)]
+	f, ok := openFiles[fd]
 	if !ok {
 		filesLock.Unlock()
 		return EINVAL

@@ -48,11 +48,13 @@ jobs:
 
       - name: Juicefs Mount
         run: |
-          sudo ./juicefs mount --enable-xattr -d redis://127.0.0.1:6379/1 /tmp/jfs &
+          sudo ./juicefs mount --enable-xattr -d redis://127.0.0.1:6379/1 /tmp/jfs --no-usage-report &
 
       - name: LTP Syscalls
         run: |
-          git clone https://github.com/linux-test-project/ltp.git
+          wget -O ltp.tar.gz https://github.com/linux-test-project/ltp/archive/refs/tags/20210927.tar.gz
+          mkdir ltp
+          tar -xvf ltp.tar.gz -C ltp --strip-components 1
           cd ltp
           make autotools
           ./configure
@@ -66,3 +68,8 @@ jobs:
           sudo tail -n 700  runtest/syscallstmp > runtest/syscallsmiddle
           sudo chmod 777 runtest/syscallsmiddle
           sudo ./runltp -d /tmp/jfs -f syscallsmiddle -C result.log.failed -T result.log.tconf -l result.log
+
+
+      - name: Setup tmate session
+        if: ${{ failure() }}
+        uses: mxschmitt/action-tmate@v3

@@ -1,16 +1,17 @@
 /*
- * JuiceFS, Copyright (C) 2021 Juicedata, Inc.
+ * JuiceFS, Copyright 2021 Juicedata, Inc.
  *
- * This program is free software: you can use, redistribute, and/or modify
- * it under the terms of the GNU Affero General Public License, version 3
- * or later ("AGPL"), as published by the Free Software Foundation.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * You should have received a copy of the GNU Affero General Public License
- * along with this program. If not, see <http://www.gnu.org/licenses/>.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package meta
@@ -18,6 +19,7 @@ package meta
 import (
 	"os"
 	"os/exec"
+	"path"
 	"testing"
 )
 
@@ -101,24 +103,25 @@ func TestLoadDump(t *testing.T) {
 		testDump(t, m, 1, sampleFile, "redis.dump")
 	})
 
+	sqluri := "sqlite3://" + path.Join(t.TempDir(), "jfs-load-dump-test.db")
 	t.Run("Metadata Engine: SQLite", func(t *testing.T) {
-		m := testLoad(t, "sqlite3:///tmp/jfs-load-dump-test.db", sampleFile)
+		m := testLoad(t, sqluri, sampleFile)
 		testDump(t, m, 0, sampleFile, "sqlite3.dump")
 	})
 	t.Run("Metadata Engine: SQLite --SubDir d1", func(t *testing.T) {
-		_ = testLoad(t, "sqlite3:///tmp/jfs-load-dump-test.db", sampleFile)
-		m := NewClient("sqlite3:///tmp/jfs-load-dump-test.db", &Config{Retries: 10, Strict: true, Subdir: "d1"})
+		_ = testLoad(t, sqluri, sampleFile)
+		m := NewClient(sqluri, &Config{Retries: 10, Strict: true, Subdir: "d1"})
 		testDump(t, m, 0, subSampleFile, "sqlite3_subdir.dump")
 		testDump(t, m, 1, sampleFile, "sqlite3.dump")
 	})
 
 	t.Run("Metadata Engine: TKV", func(t *testing.T) {
-		os.Remove(settingPath)
+		_ = os.Remove(settingPath)
 		m := testLoad(t, "memkv://test/jfs", sampleFile)
 		testDump(t, m, 0, sampleFile, "tkv.dump")
 	})
 	t.Run("Metadata Engine: TKV --SubDir d1 ", func(t *testing.T) {
-		os.Remove(settingPath)
+		_ = os.Remove(settingPath)
 		m := testLoad(t, "memkv://user:passwd@test/jfs", sampleFile)
 		if kvm, ok := m.(*kvMeta); ok { // memkv will be empty if created again
 			var err error

@@ -3,24 +3,12 @@ sidebar_label: JuiceFS Metrics
 sidebar_position: 2
 slug: /p8s_metrics
 ---
+
 # JuiceFS Metrics
 
-JuiceFS provides a [Prometheus](https://prometheus.io) API for each file system. The default API address is `http://localhost:9567/metrics`, you could custom the address through `--metrics` option when execute [`juicefs mount`](../reference/command_reference.md#juicefs-mount) or [`juicefs gateway`](../reference/command_reference.md#juicefs-gateway) command.
-
-JuiceFS also provides a [dashboard template](grafana_template.json) for [Grafana](https://grafana.com), which can be
-imported to show the collected metrics in Prometheus.
-
-## Use Consul as registration center
-
-JuiceFS support use Consul as registration center for metrics API. You could custom the address through `--consul` option when execute [`juicefs mount`](../reference/command_reference.md#juicefs-mount) or [`juicefs gateway`](../reference/command_reference.md#juicefs-gateway) command.
-
-When the Consul address is configured, the `--metrics` option does not need to be configured. JuiceFS will automatically configure metrics URL according to its own network and port conditions. If `--metrics` is set at the same time, it will first try to listen on the configured metrics URL.
-
-For each instance registered to Consul, its `serviceName` is `juicefs`, and the format of `serviceId` is `<IP>:<mount-point>`, for example: `127.0.0.1:/tmp/jfs`.
-
-The meta of each instance contains two aspects: `hostname` and `mountpoint`. When `mountpoint` is `s3gateway`, which means that the instance is an S3 gateway.
-
-Below are descriptions of each metrics.
+:::tip
+Please see the ["Monitoring"](../administration/monitoring.md) documentation to learn how to collect and display JuiceFS monitoring metrics.
+:::
 
 ## Global labels
 
@@ -34,7 +22,7 @@ When Prometheus scrapes a target, it attaches `instance` label automatically to 
 :::
 
 :::info
-If the monitoring metrics are reported through [Prometheus Pushgateway](https://github.com/prometheus/pushgateway) (for example, [JuiceFS Hadoop Java SDK](../deployment/hadoop_java_sdk.md#monitoring-metrics-collection)), the value of the `mp` label is `sdk-<PID>`, and the value of the `instance` label is the host name.
+If the monitoring metrics are reported through [Prometheus Pushgateway](https://github.com/prometheus/pushgateway) (for example, [JuiceFS Hadoop Java SDK](../administration/monitoring.md#hadoop)), the value of the `mp` label is `sdk-<PID>`, and the value of the `instance` label is the host name.
 :::
 
 ## File system

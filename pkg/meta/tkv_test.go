@@ -1,16 +1,17 @@
 /*
- * JuiceFS, Copyright (C) 2021 Juicedata, Inc.
+ * JuiceFS, Copyright 2021 Juicedata, Inc.
  *
- * This program is free software: you can use, redistribute, and/or modify
- * it under the terms of the GNU Affero General Public License, version 3
- * or later ("AGPL"), as published by the Free Software Foundation.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * You should have received a copy of the GNU Affero General Public License
- * along with this program. If not, see <http://www.gnu.org/licenses/>.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 //nolint:errcheck
@@ -19,59 +20,23 @@ package meta
 import (
 	"os"
 	"testing"
-	"time"
 )
 
 func TestMemKVClient(t *testing.T) {
 	_ = os.Remove(settingPath)
-	m, err := newKVMeta("memkv", "test/jfs", &Config{MaxDeletes: 1})
-	// newKVMeta("tikv", "127.0.0.1:2379/jfs", &Config{MaxDeletes: 1})
+	m, err := newKVMeta("memkv", "jfs-unit-test", &Config{MaxDeletes: 1})
 	if err != nil || m.Name() != "memkv" {
 		t.Fatalf("create meta: %s", err)
 	}
-
-	testMetaClient(t, m)
-	testTruncateAndDelete(t, m)
-	testTrash(t, m)
-	testRemove(t, m)
-	testStickyBit(t, m)
-	testLocks(t, m)
-	testConcurrentWrite(t, m)
-	testCompaction(t, m)
-	testCopyFileRange(t, m)
-	testCloseSession(t, m)
-	m.(*kvMeta).conf.CaseInsensi = true
-	testCaseIncensi(t, m)
-	m.(*kvMeta).conf.OpenCache = time.Second
-	m.(*kvMeta).of.expire = time.Second
-	testOpenCache(t, m)
-	m.(*kvMeta).conf.ReadOnly = true
-	testReadOnly(t, m)
+	testMeta(t, m)
 }
 
 func TestTiKVClient(t *testing.T) {
-	m, err := newKVMeta("tikv", "127.0.0.1:2379/jfs", &Config{MaxDeletes: 1})
+	m, err := newKVMeta("tikv", "127.0.0.1:2379/jfs-unit-test", &Config{MaxDeletes: 1})
 	if err != nil || m.Name() != "tikv" {
 		t.Fatalf("create meta: %s", err)
 	}
-
-	testMetaClient(t, m)
-	testTruncateAndDelete(t, m)
-	testTrash(t, m)
-	testRemove(t, m)
-	testStickyBit(t, m)
-	testLocks(t, m)
-	testConcurrentWrite(t, m)
-	testCompaction(t, m)
-	testCopyFileRange(t, m)
-	testCloseSession(t, m)
-	m.(*kvMeta).conf.CaseInsensi = true
-	testCaseIncensi(t, m)
-	m.(*kvMeta).conf.OpenCache = time.Second
-	m.(*kvMeta).of.expire = time.Second
-	testOpenCache(t, m)
-	m.(*kvMeta).conf.ReadOnly = true
-	testReadOnly(t, m)
+	testMeta(t, m)
 }
 
 func TestMemKV(t *testing.T) {

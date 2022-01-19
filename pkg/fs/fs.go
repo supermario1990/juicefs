@@ -1,16 +1,17 @@
 /*
- * JuiceFS, Copyright (C) 2021 Juicedata, Inc.
+ * JuiceFS, Copyright 2021 Juicedata, Inc.
  *
- * This program is free software: you can use, redistribute, and/or modify
- * it under the terms of the GNU Affero General Public License, version 3
- * or later ("AGPL"), as published by the Free Software Foundation.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * You should have received a copy of the GNU Affero General Public License
- * along with this program. If not, see <http://www.gnu.org/licenses/>.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package fs
@@ -107,8 +108,8 @@ func (fs *FileStat) Sys() interface{} { return fs.attr }
 func (fs *FileStat) Uid() int         { return int(fs.attr.Uid) }
 func (fs *FileStat) Gid() int         { return int(fs.attr.Gid) }
 
-func (fs *FileStat) Atime() int64 { return int64(fs.attr.Atime*1000) + int64(fs.attr.Atimensec/1e6) }
-func (fs *FileStat) Mtime() int64 { return int64(fs.attr.Mtime*1000) + int64(fs.attr.Mtimensec/1e6) }
+func (fs *FileStat) Atime() int64 { return fs.attr.Atime*1000 + int64(fs.attr.Atimensec/1e6) }
+func (fs *FileStat) Mtime() int64 { return fs.attr.Mtime*1000 + int64(fs.attr.Mtimensec/1e6) }
 
 func AttrToFileInfo(inode Ino, attr *Attr) *FileStat {
 	return &FileStat{inode: inode, attr: attr}
@@ -275,7 +276,7 @@ func (fs *FileSystem) flushLog(f *os.File, logBuffer chan string, path string) {
 		var fi os.FileInfo
 		fi, err = f.Stat()
 		if err == nil && fi.Size() > rotateAccessLog {
-			f.Close()
+			_ = f.Close()
 			fi, err = os.Stat(path)
 			if err == nil && fi.Size() > rotateAccessLog {
 				tmp := fmt.Sprintf("%s.%p", path, fs)
@@ -795,7 +796,7 @@ func (fs *FileSystem) Flush() error {
 }
 
 func (fs *FileSystem) Close() error {
-	fs.Flush()
+	_ = fs.Flush()
 	buffer := fs.logBuffer
 	if buffer != nil {
 		fs.logBuffer = nil
@@ -997,7 +998,7 @@ func (f *File) pwrite(ctx meta.Context, b []byte, offset int64) (n int, err sysc
 	}
 	err = f.wdata.Write(ctx, uint64(offset), b)
 	if err != 0 {
-		f.wdata.Close(meta.Background)
+		_ = f.wdata.Close(meta.Background)
 		f.wdata = nil
 		return
 	}
@@ -1052,7 +1053,7 @@ func (f *File) Close(ctx meta.Context) (err syscall.Errno) {
 			err = f.wdata.Close(meta.Background)
 			f.wdata = nil
 		}
-		f.fs.m.Close(ctx, f.inode)
+		_ = f.fs.m.Close(ctx, f.inode)
 	}
 	return
 }

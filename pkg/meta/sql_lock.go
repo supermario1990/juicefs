@@ -1,18 +1,20 @@
+//go:build !nosqlite || !nomysql || !nopg
 // +build !nosqlite !nomysql !nopg
 
 /*
- * JuiceFS, Copyright (C) 2020 Juicedata, Inc.
+ * JuiceFS, Copyright 2020 Juicedata, Inc.
  *
- * This program is free software: you can use, redistribute, and/or modify
- * it under the terms of the GNU Affero General Public License, version 3
- * or later ("AGPL"), as published by the Free Software Foundation.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * You should have received a copy of the GNU Affero General Public License
- * along with this program. If not, see <http://www.gnu.org/licenses/>.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package meta
@@ -57,7 +59,7 @@ func (m *dbMeta) Flock(ctx Context, inode Ino, owner_ uint64, ltype uint32, bloc
 					locks[key{l.Sid, l.Owner}] = l
 				}
 			}
-			rows.Close()
+			_ = rows.Close()
 
 			if ltype == F_RDLCK {
 				for _, l := range locks {
@@ -120,10 +122,10 @@ func (m *dbMeta) Getlk(ctx Context, inode Ino, owner_ uint64, ltype *uint32, sta
 			locks[key{l.Sid, l.Owner}] = dup(l.Records)
 		}
 	}
-	rows.Close()
+	_ = rows.Close()
 
 	for k, d := range locks {
-		ls := loadLocks([]byte(d))
+		ls := loadLocks(d)
 		for _, l := range ls {
 			// find conflicted locks
 			if (*ltype == F_WRLCK || l.ltype == F_WRLCK) && *end >= l.start && *start <= l.end {
@@ -167,7 +169,7 @@ func (m *dbMeta) Setlk(ctx Context, inode Ino, owner_ uint64, block bool, ltype 
 				if !ok {
 					return nil
 				}
-				ls := loadLocks([]byte(l.Records))
+				ls := loadLocks(l.Records)
 				if len(ls) == 0 {
 					return nil
 				}
@@ -194,13 +196,13 @@ func (m *dbMeta) Setlk(ctx Context, inode Ino, owner_ uint64, block bool, ltype 
 					locks[key{l.Sid, l.Owner}] = dup(l.Records)
 				}
 			}
-			rows.Close()
+			_ = rows.Close()
 			lkey := key{m.sid, owner}
 			for k, d := range locks {
 				if k == lkey {
 					continue
 				}
-				ls := loadLocks([]byte(d))
+				ls := loadLocks(d)
 				for _, l := range ls {
 					// find conflicted locks
 					if (ltype == F_WRLCK || l.ltype == F_WRLCK) && end >= l.start && start <= l.end {
@@ -208,7 +210,7 @@ func (m *dbMeta) Setlk(ctx Context, inode Ino, owner_ uint64, block bool, ltype 
 					}
 				}
 			}
-			ls := updateLocks(loadLocks([]byte(locks[lkey])), lock)
+			ls := updateLocks(loadLocks(locks[lkey]), lock)
 			var n int64
 			if len(locks[lkey]) > 0 {
 				n, err = s.Cols("records").Update(plock{Records: dumpLocks(ls)},

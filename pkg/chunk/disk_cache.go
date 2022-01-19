@@ -1,16 +1,17 @@
 /*
- * JuiceFS, Copyright (C) 2020 Juicedata, Inc.
+ * JuiceFS, Copyright 2020 Juicedata, Inc.
  *
- * This program is free software: you can use, redistribute, and/or modify
- * it under the terms of the GNU Affero General Public License, version 3
- * or later ("AGPL"), as published by the Free Software Foundation.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * You should have received a copy of the GNU Affero General Public License
- * along with this program. If not, see <http://www.gnu.org/licenses/>.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package chunk
@@ -165,7 +166,7 @@ func (cache *cacheStore) curFreeRatio() (float32, float32) {
 	return float32(free) / float32(total), float32(ffree) / float32(files)
 }
 
-func (cache *cacheStore) flushPage(path string, data []byte, sync bool) error {
+func (cache *cacheStore) flushPage(path string, data []byte) error {
 	start := time.Now()
 	cacheWrites.Add(1)
 	cacheWriteBytes.Add(float64(len(data)))
@@ -179,32 +180,17 @@ func (cache *cacheStore) flushPage(path string, data []byte, sync bool) error {
 		logger.Infof("Can't create cache file %s: %s", tmp, err)
 		return err
 	}
-	_, err = f.Write(data)
-	if err != nil {
-		logger.Warnf("Write to cache file %s failed: %s", tmp, err)
+	defer func() {
 		_ = f.Close()
 		_ = os.Remove(tmp)
+	}()
+
+	if _, err = f.Write(data); err != nil {
+		logger.Warnf("Write to cache file %s failed: %s", tmp, err)
 		return err
 	}
-	if sync {
-		err = f.Sync()
-		if err != nil {
-			logger.Warnf("sync stagging file %s failed: %s", tmp, err)
-			_ = f.Close()
-			_ = os.Remove(tmp)
-			return err
-		}
-	}
-	err = f.Close()
-	if err != nil {
-		logger.Warnf("Close cache file %s failed: %s", tmp, err)
-		_ = os.Remove(tmp)
-		return err
-	}
-	err = os.Rename(tmp, path)
-	if err != nil {
+	if err = os.Rename(tmp, path); err != nil {
 		logger.Infof("Rename cache file %s -> %s failed: %s", tmp, path, err)
-		_ = os.Remove(tmp)
 	}
 	return err
 }
@@ -275,7 +261,7 @@ func (cache *cacheStore) flush() {
 	for {
 		w := <-cache.pending
 		path := cache.cachePath(w.key)
-		if cache.capacity > 0 && cache.flushPage(path, w.page.Data, false) == nil {
+		if cache.capacity > 0 && cache.flushPage(path, w.page.Data) == nil {
 			cache.add(w.key, int32(len(w.page.Data)), uint32(time.Now().Unix()))
 		}
 		cache.Lock()
@@ -314,7 +300,7 @@ func (cache *cacheStore) stage(key string, data []byte, keepCache bool) (string,
 	if cache.full {
 		return stagingPath, errors.New("Space not enough on device")
 	}
-	err := cache.flushPage(stagingPath, data, false)
+	err := cache.flushPage(stagingPath, data)
 	if err == nil && cache.capacity > 0 && keepCache {
 		path := cache.cachePath(key)
 		cache.createDir(filepath.Dir(path))
@@ -393,7 +379,7 @@ func (cache *cacheStore) cleanup() {
 	}
 	cache.Unlock()
 	for _, key := range todel {
-		os.Remove(cache.cachePath(key))
+		_ = os.Remove(cache.cachePath(key))
 	}
 	cache.Lock()
 }

@@ -156,7 +156,7 @@ $ make win
 | `juicefs.upload-limit`   | 0      | 上传带宽限制，单位为 Mbps，默认不限制。 |
 | `juicefs.download-limit` | 0      | 下载带宽限制，单位为 Mbps，默认不限制。 |
 
-  #### 其他配置
+#### 其他配置
 
 | 配置项                    | 默认值  | 描述                                                         |
 | ------------------------- | ------- | ------------------------------------------------------------ |
@@ -297,38 +297,7 @@ CREATE TABLE IF NOT EXISTS person
 
 ## 监控指标收集
 
-JuiceFS Hadoop Java SDK 支持把运行指标以 [Prometheus](https://prometheus.io) 格式上报到 [Pushgateway](https://github.com/prometheus/pushgateway)，然后让 Prometheus 从 Pushgateway 抓取指标，最后通过 [Grafana](https://grafana.com) 以及 [JuiceFS 仪表盘模板](../../en/grafana_template.json)来展示收集的运行指标。
-
-请用如下参数启用指标收集：
-
-```xml
-<property>
-  <name>juicefs.push-gateway</name>
-  <value>host:port</value>
-</property>
-```
-
-同时可以通过 `juicefs.push-interval` 配置修改上报指标的频率，默认为 10 秒上报一次。
-
-:::info 说明
-根据 [Pushgateway 官方文档](https://github.com/prometheus/pushgateway/blob/master/README.md#configure-the-pushgateway-as-a-target-to-scrape)的建议，Prometheus 的[抓取配置](https://prometheus.io/docs/prometheus/latest/configuration/configuration/#scrape_config)中需要设置 `honor_labels: true`。
-
-需要特别注意，Prometheus 从 Pushgateway 抓取的指标的时间戳不是 JuiceFS Hadoop Java SDK 上报时的时间，而是抓取时的时间，具体请参考 [Pushgateway 官方文档](https://github.com/prometheus/pushgateway/blob/master/README.md#about-timestamps)。
-
-默认情况下 Pushgateway 只会在内存中保存指标，如果需要持久化到磁盘上，可以通过 `--persistence.file` 选项指定保存的文件路径以及 `--persistence.interval` 选项指定保存到文件的频率（默认 5 分钟保存一次）。
-:::
-
-:::note 注意
-每一个使用 JuiceFS Hadoop Java SDK 的进程会有唯一的指标，而 Pushgateway 会一直记住所有收集到的指标，导致指标数持续积累占用过多内存，也会使得 Prometheus 抓取指标时变慢，建议定期清理 Pushgateway 上的指标。
-
-定期使用下面的命令清理 Pushgateway 的指标数据，清空指标不影响运行中的 JuiceFS Hadoop Java SDK 持续上报数据。**注意 Pushgateway 启动时必须指定 `--web.enable-admin-api` 选项，同时以下命令会清空 Pushgateway 中的所有监控指标。**
-
-```bash
-$ curl -X PUT http://host:9091/api/v1/admin/wipe
-```
-:::
-
-关于所有监控指标的描述，请查看 [JuiceFS 监控指标](../reference/p8s_metrics.md)。有关 Pushgateway 的更多信息，请查看[官方文档](https://github.com/prometheus/pushgateway/blob/master/README.md)。
+请查看[「监控」](../administration/monitoring.md)文档了解如何收集及展示 JuiceFS 监控指标
 
 ## 基准测试
 
@@ -336,6 +305,7 @@ $ curl -X PUT http://host:9091/api/v1/admin/wipe
 
 
 ### 1. 本地测试
+
 #### 元数据性能
 
 - **create**
@@ -368,12 +338,12 @@ $ curl -X PUT http://host:9091/api/v1/admin/wipe
 
 - **参考值**
 
-| 操作   | TPS  | 时延（ms） |
-| ------ | ---- | ----       |
-| create | 644  | 1.55       |
-| open   | 3467 | 0.29       |
-| rename | 483  | 2.07       |
-| delete | 506  | 1.97       |
+  | 操作   | TPS  | 时延（ms） |
+  | ------ | ---- | ----       |
+  | create | 644  | 1.55       |
+  | open   | 3467 | 0.29       |
+  | rename | 483  | 2.07       |
+  | delete | 506  | 1.97       |
 
 #### I/O 性能
 
@@ -393,10 +363,10 @@ $ curl -X PUT http://host:9091/api/v1/admin/wipe
 
 - **参考值**
 
-| 操作   | 吞吐（MB/s） |
-| ------ | ----         |
-| write  | 647          |
-| read   | 111          |
+  | 操作   | 吞吐（MB/s） |
+  | ------ | ----         |
+  | write  | 647          |
+  | read   | 111          |
 
 如果机器的网络带宽比较低，则一般能达到网络带宽瓶颈
 
@@ -447,21 +417,21 @@ $ curl -X PUT http://host:9091/api/v1/admin/wipe
 
   - 10 并发
 
-  | 操作   | IOPS | 时延（ms） |
-  | ------ | ---- | ----       |
-  | create | 4178 | 2.2        |
-  | open   | 9407 | 0.8        |
-  | rename | 3197 | 2.9       |
-  | delete | 3060 | 3.0        |
+    | 操作   | IOPS | 时延（ms） |
+    | ------ | ---- | ----       |
+    | create | 4178 | 2.2        |
+    | open   | 9407 | 0.8        |
+    | rename | 3197 | 2.9       |
+    | delete | 3060 | 3.0        |
 
   - 100 并发
 
-  | 操作   | IOPS  | 时延（ms） |
-  | ------ | ----  | ----       |
-  | create | 11773  | 7.9       |
-  | open   | 34083 | 2.4        |
-  | rename | 8995  | 10.8       |
-  | delete | 7191  | 13.6       |
+    | 操作   | IOPS  | 时延（ms） |
+    | ------ | ----  | ----       |
+    | create | 11773  | 7.9       |
+    | open   | 34083 | 2.4        |
+    | rename | 8995  | 10.8       |
+    | delete | 7191  | 13.6       |
 
 #### I/O 性能
 
@@ -484,10 +454,10 @@ $ curl -X PUT http://host:9091/api/v1/admin/wipe
 
 - **参考值**
 
-| 操作   | 平均吞吐（MB/s） | 总吞吐（MB/s） |
-| ------ | ----             | ----           |
-| write  | 198              | 1835           |
-| read   | 124              | 1234           |
+  | 操作   | 平均吞吐（MB/s） | 总吞吐（MB/s） |
+  | ------ | ----             | ----           |
+  | write  | 198              | 1835           |
+  | read   | 124              | 1234           |
 
 ### 3. TPC-DS
 
@@ -499,10 +469,10 @@ $ curl -X PUT http://host:9091/api/v1/admin/wipe
 
 #### 测试硬件
 
-|        | 机器型号             | CPU  | Memory | Disk                                            | 数量 |
-| ------ | -------------------  | ---- | ------ | ----------------------------------              | ---- |
-| Master | 阿里云 ecs.r6.xlarge | 4    | 32GiB  | 系统盘：100GiB                                  | 1    |
-| Core   | 阿里云 ecs.r6.xlarge | 4    | 32GiB  | 系统盘：100GiB<br />数据盘：500GiB 高效云盘 x 2 | 3    |
+| 节点类型 | 机器型号             | CPU  | 内存   | 磁盘                                            | 数量 |
+| ------   | -------------------  | ---- | ------ | ----------------------------------              | ---- |
+| Master   | 阿里云 ecs.r6.xlarge | 4    | 32GiB  | 系统盘：100GiB                                  | 1    |
+| Core     | 阿里云 ecs.r6.xlarge | 4    | 32GiB  | 系统盘：100GiB<br />数据盘：500GiB 高效云盘 x 2 | 3    |
 
 #### 软件配置
 
@@ -522,7 +492,7 @@ ${SPARK_HOME}/sbin/start-thriftserver.sh \
 
 ##### JuiceFS 缓存配置
 
-Core 节点 2 块数据盘挂载在 `/data01` 和 `/data02` 目录下，`core-site.xml` 配置如下：
+Core 节点的 2 块数据盘挂载在 `/data01` 和 `/data02` 目录下，`core-site.xml` 配置如下：
 
 ```xml
 <property>
@@ -567,39 +537,39 @@ ${SPARK_HOME}/bin/beeline -u jdbc:hive2://localhost:10001/${DATABASE} \
 
 #### 结果
 
-JuiceFS 可以使用本地磁盘作为缓存加速，以下数据是跑 4 次后的结果（单位秒）。
+JuiceFS 可以使用本地磁盘作为缓存加速数据访问，以下数据是分别使用 Redis 和 TiKV 作为 JuiceFS 的元数据引擎跑 4 次后的结果（单位秒）。
 
 ##### ORC
 
-| Queries | Redis | TiKV       | HDFS   |
-| ------- | ----- | ---------- | ------ |
-| q1      | 20    | 20         | 20     |
-| q2      | 28    | 33         | 26     |
-| q3      | 24    | 27         | 28     |
-| q4      | 300   | 309        | 290    |
-| q5      | 116   | 117        | 91     |
-| q6      | 37    | 42         | 41     |
-| q7      | 24    | 28         | 23     |
-| q8      | 13    | 15         | 16     |
-| q9      | 87    | 112        | 89     |
-| q10     | 23    | 24         | 22     |
+| Queries | JuiceFS (Redis) | JuiceFS (TiKV) | HDFS |
+| ------- | --------------- | -------------- | ---- |
+| q1      | 20              | 20             | 20   |
+| q2      | 28              | 33             | 26   |
+| q3      | 24              | 27             | 28   |
+| q4      | 300             | 309            | 290  |
+| q5      | 116             | 117            | 91   |
+| q6      | 37              | 42             | 41   |
+| q7      | 24              | 28             | 23   |
+| q8      | 13              | 15             | 16   |
+| q9      | 87              | 112            | 89   |
+| q10     | 23              | 24             | 22   |
 
 ![orc](../images/spark_ql_orc.png)
 
 ##### Parquet
 
-| Queries | Redis | TiKV       | HDFS   |
-| ------- | ----- | ---------- | ------ |
-| q1      | 33    | 35         | 39     |
-| q2      | 28    | 32         | 31     |
-| q3      | 23    | 25         | 24     |
-| q4      | 273   | 284        | 266    |
-| q5      | 96    | 107        | 94     |
-| q6      | 36    | 35         | 42     |
-| q7      | 28    | 30         | 24     |
-| q8      | 11    | 12         | 14     |
-| q9      | 85    | 97         | 77     |
-| q10     | 24    | 28         | 38     |
+| Queries | JuiceFS (Redis) | JuiceFS (TiKV) | HDFS |
+| ------- | --------------- | -------------- | ---- |
+| q1      | 33              | 35             | 39   |
+| q2      | 28              | 32             | 31   |
+| q3      | 23              | 25             | 24   |
+| q4      | 273             | 284            | 266  |
+| q5      | 96              | 107            | 94   |
+| q6      | 36              | 35             | 42   |
+| q7      | 28              | 30             | 24   |
+| q8      | 11              | 12             | 14   |
+| q9      | 85              | 97             | 77   |
+| q10     | 24              | 28             | 38   |
 
 ![parquet](../images/spark_sql_parquet.png)
 
